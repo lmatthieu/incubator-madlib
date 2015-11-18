@@ -18,7 +18,8 @@
 // (commit https://github.com/postgres/postgres/commit/a919937f112eb2f548d5f9bd1b3a7298375e6380)
 // Since we don't need anything from ports.h we can cheat and say its already been declared.
 // Warning: This could cause problems in the future...
-#define PG_PORT_H
+//#define PG_PORT_H
+#define PIPELINE_QUERY_FN_H
 
 extern "C" {
     #include <postgres.h>
