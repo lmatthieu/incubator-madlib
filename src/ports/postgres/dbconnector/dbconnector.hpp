@@ -20,8 +20,14 @@
 // Warning: This could cause problems in the future...
 //#define PG_PORT_H
 #define PIPELINE_QUERY_FN_H
+#define CONT_EXECUTE_H
+#define CONT_ADHOC_H
 
 extern "C" {
+    struct ContExecutor;
+    struct AdhocExecutor;
+    
+    #include <stdbool.h>
     #include <postgres.h>
     #include <pg_config.h>         // Use the macro defined in the header to detect the platform
     #include <funcapi.h>
