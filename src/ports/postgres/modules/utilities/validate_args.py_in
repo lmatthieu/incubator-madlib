@@ -107,7 +107,7 @@ def table_exists(tbl, only_first_schema=False):
     schema_str, table = _get_table_schema_names(tbl, only_first_schema)
     if schema_str and table:
         schema_expr = "LIKE 'pg_temp%'" if schema_str == "('pg_temp')" \
-                else 'IN {0}'.format(schema_str)
+            else 'IN {0}'.format(schema_str)
         does_table_exist = plpy.execute(
             """
             SELECT EXISTS(
@@ -152,10 +152,10 @@ def rename_table(schema_madlib, orig_name, new_name):
     if len(orig_names_split) > 1:
         orig_table_schema = orig_names_split[0]
     else:
-        ## we need to get the schema name of the original table if we are
-        ## to change the schema of the new table. This is to ensure that we
-        ## change the schema of the correct table in case there are multiple
-        ## tables with the same new name.
+        # we need to get the schema name of the original table if we are
+        # to change the schema of the new table. This is to ensure that we
+        # change the schema of the correct table in case there are multiple
+        # tables with the same new name.
         orig_table_schema = get_first_schema(orig_name)
 
     if orig_table_schema is None:
@@ -167,7 +167,7 @@ def rename_table(schema_madlib, orig_name, new_name):
 
     if new_table_schema:
         if new_table_schema != orig_table_schema:
-            ## set schema only if a change in schema is required
+            # set schema only if a change in schema is required
             before_schema_string = "{0}.{1}".format(orig_table_schema,
                                                     new_table_name)
             plpy.execute("""ALTER TABLE {new_table}
@@ -201,16 +201,16 @@ def get_first_schema(table_name):
     elif len(names) == 2:
         return _unquote_name(names[0])
 
-    ## create a list of schema names in search path
-    ## _string_to_array is used for GPDB versions less than 4.2 where an array
-    ## is returned to Python as a string
+    # create a list of schema names in search path
+    # _string_to_array is used for GPDB versions less than 4.2 where an array
+    # is returned to Python as a string
     current_schemas = _string_to_array(plpy.execute(
         "SELECT current_schemas(True) AS cs")[0]["cs"])
 
     if not current_schemas:
         return None
 
-    ## get all schemas that contain a table with this name
+    # get all schemas that contain a table with this name
     schemas_w_table = _string_to_array(plpy.execute(
         """SELECT array_agg(table_schema::text) AS schemas
            FROM information_schema.tables
@@ -221,11 +221,11 @@ def get_first_schema(table_name):
         return None
 
     for each_schema in current_schemas:
-    ## get the first schema in search path that contains the table
+        # get the first schema in search path that contains the table
         if each_schema in schemas_w_table:
             return each_schema
 
-    ## None of the schemas in search path have the table
+    # None of the schemas in search path have the table
     return None
 # -------------------------------------------------------------------------
 
@@ -243,68 +243,24 @@ def table_is_empty(tbl):
 # -------------------------------------------------------------------------
 
 
-def _get_cols_in_current_schema(tbl, schema_madlib="madlib"):
-    """
-    Get all column names in a table.
-
-    All schemas in current_schemas are searched for the table and the first one
-    found is returned.
-    Note: This function assumes that the table name is *not* qualified with
-    the schema name
-    """
-    schema = plpy.execute("select current_schemas(True) as cs")[0]["cs"]
-    # special handling for array in GPDB <= 4.1
-    schema = _string_to_array(schema)
-    array_agg_string = version_wrapper.select_array_agg(schema_madlib)
-    sql_string = "SELECT " + array_agg_string + \
-                 """(quote_ident(column_name)::varchar) AS cols
-                    FROM information_schema.columns
-                    WHERE table_name = '{table_name}'
-                    AND table_schema = '{s}'
-                 """
-    tbl = _unquote_name(tbl)
-    for s in schema:
-        s = _unquote_name(s)
-        existing_cols = plpy.execute(sql_string.format(table_name=tbl,
-                                                       s=s))[0]["cols"]
-        if existing_cols is not None:
-            return existing_cols
-    return None
-#-------------------------------------------------------------------------
-
-
-def get_cols(tbl, schema_madlib="madlib"):
+def get_cols(tbl, *args, **kwargs):
     """
     Get all column names in a table.
 
     If the table is schema qualified then the appropriate schema is searched.
     If no schema qualification is provided then the current schema is used.
     """
-    array_agg_string = version_wrapper.select_array_agg(schema_madlib)
-
     if tbl is None or tbl.lower() == 'null':
         plpy.error('Input error: Table name (NULL) is invalid')
-    if not schema_madlib:
-        plpy.error('Input error: Invalid MADlib schema name')
 
-    names = tbl.split(".")
-
-    if len(names) == 1:
-        return _get_cols_in_current_schema(tbl, schema_madlib)
-    elif len(names) == 2:
-        schema = _unquote_name(names[0])
-        table = _unquote_name(names[1])
-        sql_string = "SELECT " + array_agg_string + \
-                     """(quote_ident(attname)::varchar) AS cols
-                        FROM pg_attribute
-                        WHERE attrelid = '{tbl}'::regclass
-                          AND NOT attisdropped
-                          AND attnum > 0"""
-        existing_cols = plpy.execute(sql_string.format(**locals()))[0]["cols"]
-    else:
-        plpy.error("Input error: Invalid table name - {0}!".format(tbl))
-    return existing_cols
-#-------------------------------------------------------------------------
+    sql_string = """SELECT array_agg(quote_ident(attname)::varchar
+                                     ORDER BY attnum) AS cols
+                    FROM pg_attribute
+                    WHERE attrelid = '{tbl}'::regclass
+                      AND NOT attisdropped
+                      AND attnum > 0"""
+    return plpy.execute(sql_string.format(**locals()))[0]["cols"]
+# -------------------------------------------------------------------------
 
 
 def get_cols_and_types(tbl):
@@ -326,27 +282,31 @@ def get_cols_and_types(tbl):
     if tbl is None or tbl.lower() == 'null':
         plpy.error('Input error: Table name (NULL) is invalid')
 
-    names = tbl.split(".")
-
-    if not names or len(names) > 2:
-        raise TypeError("Input error: Invalid table name - {0}!".format(tbl))
-    elif len(names) == 1:
-        table = _unquote_name(names[0])
-        schema = get_first_schema(table)
-    elif len(names) == 2:
-        schema = _unquote_name(names[0])
-        table = _unquote_name(names[1])
-    sql_string = """SELECT array_agg(quote_ident(column_name)::varchar) AS cols,
-                           array_agg(data_type::varchar) AS types
+    # determine the exact table_schema and table_name
+    # in case that source_table only contains table_name
+    row = plpy.execute("""
+                        SELECT
+                            nspname AS table_schema,
+                            relname AS table_name
+                        FROM
+                            pg_class AS c,
+                            pg_namespace AS nsp
+                        WHERE
+                            c.oid = '{tbl}'::regclass::oid AND
+                            c.relnamespace = nsp.oid
+                        """.format(tbl=tbl))
+    schema = row[0]['table_schema']
+    table = row[0]['table_name']
+    sql_string = """SELECT array_agg(quote_ident(column_name)::varchar ORDER BY ordinal_position) AS cols,
+                           array_agg(data_type::varchar ORDER BY ordinal_position) AS types
                     FROM information_schema.columns
-                    WHERE table_name = '{table_name}'
-                    AND table_schema = '{schema_name}'
-                """.format(table_name=table,
-                           schema_name=schema)
+                    WHERE table_name = '{table}'
+                    AND table_schema = '{schema}'
+                """.format(table=table, schema=schema)
     result = plpy.execute(sql_string)[0]
     col_names = _string_to_array(result['cols'])
     col_types = _string_to_array(result['types'])
-    return dict(zip(col_names, col_types))
+    return list(zip(col_names, col_types))
 # -------------------------------------------------------------------------
 
 
@@ -387,6 +347,26 @@ def columns_exist_in_table(tbl, cols, schema_madlib="madlib"):
         if not col or _unquote_name(col) not in existing_cols:
             return False
     return True
+# -------------------------------------------------------------------------
+
+
+def columns_missing_from_table(tbl, cols):
+    """ Get which columns are not present in a given table
+
+    Args:
+        @param tbl Name of source table
+        @param cols Iterable containing column names
+
+    Returns:
+        True if all columns in 'cols' exist in source table else False
+    """
+    if not cols:
+        return []
+    existing_cols = set(_unquote_name(i) for i in get_cols(tbl))
+    # column is considered missing if the name is invalid (None or empty) or
+    #  if the column is not present in the table
+    return [col for col in cols
+            if not col or _unquote_name(col) not in existing_cols]
 # -------------------------------------------------------------------------
 
 
@@ -470,7 +450,7 @@ def explicit_bool_to_text(tbl, cols, schema_madlib):
     """
     Patch madlib.bool_to_text for columns that are of type boolean.
     """
-    col_to_type = get_cols_and_types(tbl)
+    col_to_type = dict(get_cols_and_types(tbl))
     patched = []
     for col in cols:
         if col not in col_to_type:
@@ -553,10 +533,13 @@ def cols_in_tbl_valid(tbl, cols, module):
     for c in cols:
         if c is None or c.strip() == '':
             plpy.error("{module} error: NULL/empty column name!".format(**locals()))
-    if not columns_exist_in_table(tbl, cols):
-        for c in cols:
-            if not columns_exist_in_table(tbl, [c]):
-                plpy.error("{module} error: Column '{c}' does not exist in table '{tbl}'!".format(**locals()))
+    missing_cols = columns_missing_from_table(tbl, cols)
+
+    # FIXME: still printing just 1 column name for backwards compatibility
+    # this should be changed to print all missing columns
+    if missing_cols:
+        c = missing_cols[0]
+        plpy.error("{module} error: Column '{c}' does not exist in table '{tbl}'!".format(**locals()))
 # -------------------------------------------------------------------------
 
 

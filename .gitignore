@@ -23,6 +23,7 @@ _region_.tex
 auto
 *.swp
 *.fdb_latexmk
+*.swo  # vim swap file
 
 # Biblatex temporary files
 *-blx.bib
@@ -30,6 +31,7 @@ auto
 
 # Ignore specific generated files
 /doc/design/design.pdf
+/target/rat.txt
 
 # ctags, cscope files
 /cscope.files
