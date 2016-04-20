@@ -134,21 +134,6 @@ FROM
         WHERE train.id = test.id
     ) AS subq;
 
--- by default using epsilon == 0.1
-DROP TABLE IF EXISTS svr_model, svr_model_summary;
-SELECT svm_regression(
-     'svr_train_data',
-     'svr_model',
-     'label',
-     'ind',
-     NULL,
-     NULL,
-     NULL,
-     'init_stepsize=1, max_iter=10, lambda=2');
-SELECT
-    assert(epsilon > 0,'default epsilon is positive!')
-FROM svr_model_summary;
-
 -- Example usage for LINEAR classification, replace the above by
 SELECT svm_classification(
     'svm_train_data',
@@ -558,85 +543,6 @@ INSERT INTO abalone_eps(sex, epsilon) VALUES
 ('I', 0.2),
 ('M', 0.05);
 
--- solve it with grouping and table of epsilon as inputs
-
-DROP TABLE IF EXISTS svr_mdl, svr_mdl_summary;
-SELECT svm_regression(
-        'abalone_train_small',
-        'svr_mdl',
-        'rings',
-        'ARRAY[1,diameter,shell,shucked,length]',
-        NULL,NULL,'sex',
-        'max_iter=50, init_stepsize=1, decay_factor=0.9, tolerance=1e-16, epsilon = 50, eps_table=abalone_eps',
-        false);
-SELECT * FROM svr_mdl;
-
-
-DROP TABLE IF EXISTS svr_mdl_i, svr_mdl_i_summary;
-SELECT svm_regression(
-        'abalone_train_small',
-        'svr_mdl_i',
-        'rings',
-        'ARRAY[1,diameter,shell,shucked,length]',
-        NULL,NULL,'sex',
-        'max_iter=50, init_stepsize=1, decay_factor=0.9, tolerance=1e-16, epsilon = 0.2',
-        false);
-SELECT * FROM svr_mdl_i where sex = 'I';
-
-DROP TABLE IF EXISTS svr_mdl_m, svr_mdl_m_summary;
-SELECT svm_regression(
-        'abalone_train_small',
-        'svr_mdl_m',
-        'rings',
-        'ARRAY[1,diameter,shell,shucked,length]',
-        NULL,NULL,'sex',
-        'max_iter=50, init_stepsize=1, decay_factor=0.9, tolerance=1e-16, epsilon = 0.05',
-        false);
-SELECT * FROM svr_mdl_m where sex = 'M';
-
-DROP TABLE IF EXISTS svr_mdl_f, svr_mdl_f_summary;
-SELECT svm_regression(
-        'abalone_train_small',
-        'svr_mdl_f',
-        'rings',
-        'ARRAY[1,diameter,shell,shucked,length]',
-        NULL,NULL,'sex',
-        'max_iter=50, init_stepsize=1, decay_factor=0.9, tolerance=1e-16, epsilon = 50',
-        false);
-SELECT * FROM svr_mdl_f where sex = 'F';
-
--- verify that the results are the same
-
-SELECT assert(
-    abs_err < 1e-5,
-    'SVR with epsilon table input: Wrong results!')
-FROM (
-    SELECT
-        abs(t1.norm_of_gradient - t2.norm_of_gradient) AS abs_err
-    FROM svr_mdl_f AS t1 JOIN svr_mdl AS t2 USING (sex)
-    where sex = 'F'
-) AS q1;
-
-SELECT assert(
-    rel_err < 1e-1,
-    'SVR with epsilon table input: Wrong results!')
-FROM (
-    SELECT
-        relative_error(t1.norm_of_gradient,  t2.norm_of_gradient) AS rel_err
-    FROM svr_mdl_i AS t1 JOIN svr_mdl AS t2 USING (sex)
-    where sex = 'I'
-) AS q1;
-
-SELECT assert(
-    rel_err < 1e-1,
-    'SVR with epsilon table input: Wrong results!')
-FROM (
-    SELECT
-        relative_error(t1.norm_of_gradient,  t2.norm_of_gradient) AS rel_err
-    FROM svr_mdl_m AS t1 JOIN svr_mdl AS t2 USING (sex)
-    where sex = 'M'
-) AS q1;
-
 DROP TABLE IF EXISTS m1, m1_summary;
 SELECT svm_regression(
      'svr_train_data',
@@ -813,6 +719,64 @@ INSERT INTO kernel_data (index, x1, x2, y) VALUES (13, 0.200000000000000011, -2.
 INSERT INTO kernel_data (index, x1, x2, y) VALUES (14, 0, -2.70000000000000018, 1);
 INSERT INTO kernel_data (index, x1, x2, y) VALUES (15, 1.30000000000000004, 2.10000000000000009, 1);
 
+-- verify poly kernel mapping dimensions
+DROP TABLE IF EXISTS m1, m1_summary, m1_random CASCADE;
+SELECT svm_classification(
+     'svm_train_data',
+     'm1',
+     'label',
+     'ind',
+     'poly',
+     'n_components=3',
+     NULL,
+     'max_iter=2');
+DROP TABLE IF EXISTS svm_test_predict CASCADE;
+SELECT svm_predict('m1','svm_test_data', 'id', 'svm_test_predict');
+SELECT
+    assert(
+        array_upper(coef, 1) = 3,
+        'The dimension of the coefficients must be equal to n_components (3)!')
+FROM m1;
+
+-- verify poly kernel with grouping
+-- verify partial string support in kernel specification
+DROP TABLE IF EXISTS svr_mdl_m, svr_mdl_m_summary, svr_mdl_m_random CASCADE;
+SELECT svm_regression(
+        'abalone_train_small',
+        'svr_mdl_m',
+        'rings',
+        'ARRAY[1,diameter,shell,shucked,length]',
+        'po',
+        'degree=2, n_components=10',
+        'sex',
+        'max_iter=2, init_stepsize=1, decay_factor=0.9, tolerance=1e-16, epsilon = 0.05',
+        false);
+DROP TABLE IF EXISTS svm_test_predict CASCADE;
+SELECT svm_predict('svr_mdl_m','abalone_train_small', 'id', 'svm_test_predict');
+SELECT
+    assert(
+        array_upper(coef, 1) = 10,
+        'The dimension of the coefficients must be equal to n_components (10)!')
+FROM svr_mdl_m;
+
+-- verify poly kernel with cross validation
+DROP TABLE IF EXISTS m1, m1_summary, m1_random CASCADE;
+SELECT svm_classification(
+     'svm_train_data',
+     'm1',
+     'label',
+     'ind',
+     'poly',
+     'n_components=3',
+     NULL,
+     'max_iter=2, n_folds=3, lambda=[0.01, 0.1, 0.5]');
+DROP TABLE IF EXISTS svm_test_predict CASCADE;
+SELECT svm_predict('m1','svm_test_data', 'id', 'svm_test_predict');
+SELECT
+    assert(
+        array_upper(coef, 1) = 3,
+        'The dimension of the coefficients must be equal to n_components (3)!')
+FROM m1;
 
 DROP TABLE IF EXISTS m1, m1_summary, m1_random;
 SELECT svm_classification(
@@ -825,14 +789,3 @@ SELECT svm_classification(
      NULL,
      'init_stepsize=1, max_iter=10');
 SELECT * FROM m1;
-DROP TABLE IF EXISTS kernel_predict CASCADE;
-SELECT svm_predict('m1','kernel_data', 'index', 'kernel_predict');
-SELECT
-    count(*) as misclassification
-FROM kernel_predict NATURAL JOIN kernel_data
-WHERE prediction <> y;
-SELECT
-    assert(count(*) = 0, 'Using kernel should perfectly fit the data!')
-FROM kernel_predict NATURAL JOIN kernel_data
-WHERE prediction <> y;
-

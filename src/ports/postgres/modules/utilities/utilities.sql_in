@@ -23,11 +23,6 @@ m4_include(`SQLCommon.m4')
 
 @brief Provides a collection of user-defined functions for performing common tasks in the database.
 
-\warning <em> This MADlib method is still in early stage development. There may be some
-issues that will be addressed in a future version. Interface and implementation
-is subject to change. </em>
-
-
 The utility module consists of useful utility functions to assist data
 scientists in using the product. Several of these functions can be used
 while implementing new algorithms.
@@ -311,7 +306,7 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
 /*
  * Create type bytea8 with 8-byte alignment.
  */
-m4_ifdef(`__HAWQ__', `', `
+m4_ifdef(`__UDT_NOT_ALLOWED__', `', `
 CREATE TYPE MADLIB_SCHEMA.bytea8;
 ')
 
@@ -338,7 +333,7 @@ LANGUAGE internal IMMUTABLE STRICT
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
 
-m4_ifdef(`__HAWQ__', `', `
+m4_ifdef(`__UDT_NOT_ALLOWED__', `', `
 CREATE TYPE MADLIB_SCHEMA.bytea8(
     INPUT = MADLIB_SCHEMA.bytea8in,
     OUTPUT = MADLIB_SCHEMA.bytea8out,

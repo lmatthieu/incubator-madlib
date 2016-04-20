@@ -1,32 +1,37 @@
 /**
 @mainpage
-MADlib is an open-source library for scalable in-database analytics. It provides
-data-parallel implementations of mathematical, statistical and machine learning
-methods for structured and unstructured data.
+Apache MADlib (incubating) is an open-source library for scalable 
+in-database analytics. It provides data-parallel implementations of 
+mathematical, statistical and machine learning methods for structured 
+and unstructured data.
 
 The MADlib mission: to foster widespread development of scalable analytic
-skills, by harnessing efforts from commercial practice, academic research, and
-open-source development.
+skills, by harnessing efforts from commercial practice, academic research, 
+and open-source development.
 
 Useful links:
 <ul>
-<li>MADlib project site http://madlib.net/</li>
-<li>MADlib bug reporting site: http://jira.madlib.net/ and quick guide: https://github.com/madlib/madlib/wiki/Bug-reporting</li>
+<li><a href="http://madlib.incubator.apache.org">MADlib web site</a></li>
+<li><a href="https://cwiki.apache.org/confluence/display/MADLIB">MADlib wiki</a></li>
+<li><a href="https://issues.apache.org/jira/browse/MADLIB/">JIRAs for reporting bugs and reviewing backlog</a></li>
+<li><a href="https://mail-archives.apache.org/mod_mbox/incubator-madlib-user/">User mailing list</a></li>
+<li><a href="https://mail-archives.apache.org/mod_mbox/incubator-madlib-dev/">Dev mailing list</a></li>
 <li>User documentation for earlier releases:
-    <a href="http://doc.madlib.net/v1.7.1/index.html">v1.7.1</a>,
-    <a href="http://doc.madlib.net/v1.7/index.html">v1.7</a>,
-    <a href="http://doc.madlib.net/v1.6/index.html">v1.6</a>,
-    <a href="http://doc.madlib.net/v1.5/index.html">v1.5</a>,
-    <a href="http://doc.madlib.net/v1.4/index.html">v1.4</a>,
-    <a href="http://doc.madlib.net/v1.3/index.html">v1.3</a>,
-    <a href="http://doc.madlib.net/v1.2/index.html">v1.2</a>
+    <a href="../v1.8/index.html">v1.8</a>,
+    <a href="../v1.7.1/index.html">v1.7.1</a>,
+    <a href="../v1.7/index.html">v1.7</a>,
+    <a href="../v1.6/index.html">v1.6</a>,
+    <a href="../v1.5/index.html">v1.5</a>,
+    <a href="../v1.4/index.html">v1.4</a>,
+    <a href="../v1.3/index.html">v1.3</a>,
+    <a href="../v1.2/index.html">v1.2</a>
 </li>
 </ul>
 
-Please refer to the <a href="@DOXYGEN_README_FILE@">Read-Me</a> file for information
+Please refer to the <a href="https://github.com/apache/incubator-madlib/blob/master/ReadMe.txt">Read-Me</a> file for information
 about incorporated third-party material. License information regarding MADlib
 and included third-party libraries can be found inside the
-<a href="@DOXYGEN_LICENSE_DIR@">license</a> directory.
+<a href="https://github.com/apache/incubator-madlib/blob/master/LICENSE">License</a> directory.
 
 @defgroup grp_datatrans Data Types and Transformations
 @{Data types and transformation operations @}
@@ -122,10 +127,11 @@ complete matrix stored as a distributed table.
     @defgroup grp_desc_stats Descriptive Statistics
     @ingroup grp_stats
     @{A collection of methods to compute descriptive statistics of the dataset @}
-        @defgroup grp_summary Summary
-        @ingroup grp_desc_stats
 
         @defgroup grp_correlation Pearson's Correlation
+        @ingroup grp_desc_stats
+
+        @defgroup grp_summary Summary
         @ingroup grp_desc_stats
 
     @defgroup grp_inf_stats Inferential Statistics
@@ -139,6 +145,8 @@ complete matrix stored as a distributed table.
 
 @defgroup grp_super Supervised Learning
 @{Contains methods which perform supervised learning tasks @}
+    @defgroup grp_crf Conditional Random Field
+    @ingroup grp_super
 
     @defgroup grp_regml Regression Models
     @ingroup grp_super
@@ -156,6 +164,9 @@ complete matrix stored as a distributed table.
         @defgroup grp_robust Robust Variance
     @}
 
+    @defgroup grp_svm Support Vector Machines
+    @ingroup grp_super
+
     @defgroup grp_tree Tree Methods
     @ingroup grp_super
     @{A collection of recursive partitioning (tree) methods.  @}
@@ -165,11 +176,7 @@ complete matrix stored as a distributed table.
         @defgroup grp_random_forest Random Forest
         @ingroup grp_tree
 
-    @defgroup grp_crf Conditional Random Field
-    @ingroup grp_super
 
-    @defgroup grp_svm Support Vector Machines
-    @ingroup grp_super
 
 @defgroup grp_tsa Time Series Analysis
 @{A collection of methods to analyze time series data. @}
@@ -210,6 +217,9 @@ complete matrix stored as a distributed table.
         @defgroup grp_sparse_linear_solver Sparse Linear Systems
         @ingroup grp_linear_solver
 
+    @defgroup grp_path Path Functions
+    @ingroup grp_utility_functions
+
     @defgroup grp_pmml PMML Export
     @ingroup grp_utility_functions
 
@@ -233,7 +243,6 @@ Interface and implementation are subject to change.
 
     @defgroup grp_cg Conjugate Gradient
     @defgroup grp_bayes Naive Bayes Classification
-    @defgroup grp_path Pathing functions
     @defgroup grp_sample Random Sampling
     @defgroup grp_kernmach Support Vector Machines
 @}

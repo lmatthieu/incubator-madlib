@@ -14,6 +14,8 @@ modules:
     - name: elastic_net
     - name: glm
       depends: ['utilities']
+    - name: kernel_machines
+      depends: ['svec_util']
     - name: kmeans
       depends: ['array_ops', 'svec_util', 'sample']
     - name: lda
@@ -33,15 +35,14 @@ modules:
       depends: ['utilities', 'stats']
     - name: sketch
     - name: stats
+      depends: ['array_ops']
     - name: summary
       depends: ['utilities', 'sketch']
     - name: svec
     - name: svec_util
       depends: ['svec']
-    - name: svm
     - name: tsa
     - name: utilities
       depends: ['linalg']
     - name: validation
       depends: ['array_ops', 'regress']
-    - name: stemmer

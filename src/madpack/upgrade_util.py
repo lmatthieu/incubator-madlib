@@ -6,10 +6,10 @@ import os
 
 def run_sql(sql, portid, con_args):
     """
-    @brief Wrapper function for ____run_sql_query
+    @brief Wrapper function for run_query
     """
-    from madpack import ____run_sql_query
-    return ____run_sql_query(sql, True, con_args)
+    from madpack import run_query
+    return run_query(sql, True, con_args)
 
 
 def get_signature_for_compare(schema, proname, rettype, argument):
@@ -90,10 +90,11 @@ class ChangeHandler(UpgradeBase):
     @brief This class reads changes from the configuration file and handles
     the dropping of objects
     """
-    def __init__(self, schema, portid, con_args, maddir, mad_dbrev):
+    def __init__(self, schema, portid, con_args, maddir, mad_dbrev, is_hawq2):
         UpgradeBase.__init__(self, schema, portid, con_args)
         self._maddir = maddir
         self._mad_dbrev = mad_dbrev
+        self._is_hawq2 = is_hawq2
         self._newmodule = {}
         self._udt = {}
         self._udf = {}
@@ -142,44 +143,48 @@ class ChangeHandler(UpgradeBase):
         # _mad_dbrev = 1.0
         if self._mad_dbrev.split('.') < '1.1'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.0_1.8.yaml')
+                                    'changelist_1.0_1.9.yaml')
         # _mad_dbrev = 1.1
         elif self._mad_dbrev.split('.') < '1.2'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.1_1.8.yaml')
+                                    'changelist_1.1_1.9.yaml')
         # _mad_dbrev = 1.2
         elif self._mad_dbrev.split('.') < '1.3'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.2_1.8.yaml')
+                                    'changelist_1.2_1.9.yaml')
         # _mad_dbrev = 1.3
         elif self._mad_dbrev.split('.') < '1.4'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.3_1.8.yaml')
+                                    'changelist_1.3_1.9.yaml')
         # _mad_dbrev = 1.4
         elif self._mad_dbrev.split('.') < '1.4.1'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.4_1.8.yaml')
+                                    'changelist_1.4_1.9.yaml')
         # _mad_dbrev = 1.4.1
         elif self._mad_dbrev.split('.') < '1.5'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.4.1_1.8.yaml')
+                                    'changelist_1.4.1_1.9.yaml')
         # _mad_dbrev = 1.5
         elif self._mad_dbrev.split('.') < '1.6'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.5_1.8.yaml')
+                                    'changelist_1.5_1.9.yaml')
         # _mad_dbrev = 1.6
         elif self._mad_dbrev.split('.') < '1.6.0S'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.6_1.8.yaml')
+                                    'changelist_1.6_1.9.yaml')
         # _mad_dbrev = 1.6.0S
         elif self._mad_dbrev.split('.') < '1.7'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.6_1.8.yaml')
+                                    'changelist_1.6_1.9.yaml')
         # _mad_dbrev = 1.7
         elif self._mad_dbrev.split('.') < '1.7.1'.split('.'):
             filename = os.path.join(self._maddir, 'madpack',
-                                    'changelist_1.7_1.8.yaml')
+                                    'changelist_1.7_1.9.yaml')
         # _mad_dbrev = 1.7.1
+        elif self._mad_dbrev.split('.') < '1.8'.split('.'):
+            filename = os.path.join(self._maddir, 'madpack',
+                                    'changelist_1.7.1_1.9.yaml')
+        # _mad_dbrev = 1.8
         else:
             filename = os.path.join(self._maddir, 'madpack',
                                     'changelist.yaml')
@@ -191,9 +196,9 @@ class ChangeHandler(UpgradeBase):
         self._udc = config['udc'] if config['udc'] else {}
         self._udf = self._load_config_param(config['udf'])
         self._uda = self._load_config_param(config['uda'])
-        # FIXME remove the following  special handling for HAWQ after svec got
-        #   out from catalog
-        if self._portid != 'hawq':
+        # FIXME remove the following  special handling for HAWQ after svec is
+        # removed from catalog
+        if self._portid != 'hawq' and not self._is_hawq2:
             self._udo = self._load_config_param(config['udo'])
             self._udoc = self._load_config_param(config['udoc'])
 
@@ -314,7 +319,7 @@ class ChangeHandler(UpgradeBase):
         for udt in self._udt:
             if udt in ('svec', 'bytea8'):
                 # because the recv and send functions and the type depends on each other
-                if self._portid != 'hawq':
+                if self._portid != 'hawq' or self._is_hawq2:
                     self._run_sql("DROP TYPE IF EXISTS {0}.{1} CASCADE".format(self._schema, udt))
             else:
                 self._run_sql("DROP TYPE IF EXISTS {0}.{1}".format(self._schema, udt))

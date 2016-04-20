@@ -174,7 +174,7 @@ in the glossary.
 -- Create a diag matrix initialized with given diagonal elements
 &nbsp; <b>matrix_diag</b>( diag_elements, matrix_out, out_args)
 -- Create a matrix initialized with values sampled from a distribution
--- Supported distributions: normal and uniform
+-- Supported distributions: normal, uniform, bernoulli
 &nbsp; <b>matrix_random</b>( distribution, row_dim, col_dim, in_args, matrix_out, out_args )
 </pre>
 
@@ -2393,12 +2393,25 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 CREATE OR REPLACE FUNCTION
 MADLIB_SCHEMA.matrix_random
 (
+    row_id        INTEGER,
+    col_id        INTEGER,
+    distribution  TEXT,
+    matrix_out    TEXT
+)
+RETURNS MADLIB_SCHEMA.matrix_result AS $$
+    SELECT MADLIB_SCHEMA.matrix_random($1, $2, ''::TEXT, $3, $4, ''::TEXT)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.matrix_random
+(
     row_id     INTEGER,
     col_id     INTEGER,
     matrix_out TEXT
 )
 RETURNS MADLIB_SCHEMA.matrix_result AS $$
-    SELECT MADLIB_SCHEMA.matrix_random($1, $2, ''::TEXT, 'uniform', $3, ''::TEXT)
+    SELECT MADLIB_SCHEMA.matrix_random($1, $2, 'uniform', $3)
 $$ LANGUAGE SQL
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
@@ -2969,6 +2982,46 @@ AS 'MODULE_PATHNAME', 'matrix_vec_mult_in_mem_1d'
 LANGUAGE C STRICT
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
+/**
+ * @brief The function folds (through multiplication) array x according to
+ *        the pattern in array y, producing an array of the same length as array y.
+ * @param row Array x
+ * @param pattern Array y
+ * @param folded array
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__row_fold(
+    row_in  FLOAT8[],
+    pattern  INTEGER[]
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'row_fold'
+LANGUAGE C STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__bernoulli_vector
+(
+    dim INTEGER,
+    pos_val FLOAT8,
+    neg_val FLOAT8,
+    prob FLOAT8,
+    seed INTEGER
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'bernoulli_vector'
+LANGUAGE C STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__bernoulli_vector
+(
+    dim INTEGER
+)
+RETURNS FLOAT8[] AS $$
+    SELECT MADLIB_SCHEMA.__bernoulli_vector($1, 1::FLOAT8, 0::FLOAT8, 0.5::FLOAT8, 42::INTEGER)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
 CREATE OR REPLACE FUNCTION
 MADLIB_SCHEMA.__uniform_vector
 (
@@ -3469,7 +3522,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.__matrix_dense_inverse(
  * @brief Compute inverse of a sparse matrix
  */
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__matrix_sparse_inverse(
-    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION []);
+    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION);
 CREATE AGGREGATE MADLIB_SCHEMA.__matrix_sparse_inverse(
     /*+ numRows */ INTEGER,
     /*+ numCols */ INTEGER,
@@ -3507,7 +3560,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.__matrix_dense_pinv(
  * @brief Compute generalized inverse of a sparse matrix
  */
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__matrix_sparse_pinv(
-    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION []);
+    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION);
 CREATE AGGREGATE MADLIB_SCHEMA.__matrix_sparse_pinv(
     /*+ numRows */ INTEGER,
     /*+ numCols */ INTEGER,
@@ -3545,7 +3598,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.__matrix_dense_eigen(
  * @brief Compute inverse of a sparse matrix
  */
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__matrix_sparse_eigen(
-    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION []);
+    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION);
 CREATE AGGREGATE MADLIB_SCHEMA.__matrix_sparse_eigen(
     /*+ numRows */ INTEGER,
     /*+ numCols */ INTEGER,
@@ -3583,7 +3636,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.__matrix_dense_cholesky(
  * @brief Cholesky decompose of a sparse matrix
  */
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__matrix_sparse_cholesky(
-    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION []);
+    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION);
 CREATE AGGREGATE MADLIB_SCHEMA.__matrix_sparse_cholesky(
     /*+ numRows */ INTEGER,
     /*+ numCols */ INTEGER,
@@ -3621,7 +3674,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.__matrix_dense_qr(
  * @brief QR decompose of a sparse matrix
  */
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__matrix_sparse_qr(
-    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION []);
+    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION);
 CREATE AGGREGATE MADLIB_SCHEMA.__matrix_sparse_qr(
     /*+ numRows */ INTEGER,
     /*+ numCols */ INTEGER,
@@ -3659,7 +3712,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.__matrix_dense_rank(
  * @brief Compute rank of a sparse matrix
  */
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__matrix_sparse_rank(
-    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION []);
+    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION);
 CREATE AGGREGATE MADLIB_SCHEMA.__matrix_sparse_rank(
     /*+ numRows */ INTEGER,
     /*+ numCols */ INTEGER,
@@ -3697,7 +3750,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.__matrix_dense_lu(
  * @brief Compute full pivoting LU decomposition of a sparse matrix
  */
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__matrix_sparse_lu(
-    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION []);
+    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION);
 CREATE AGGREGATE MADLIB_SCHEMA.__matrix_sparse_lu(
     /*+ numRows */ INTEGER,
     /*+ numCols */ INTEGER,
@@ -3735,7 +3788,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.__matrix_dense_nuclear_norm(
  * @brief Compute nuclear norm of a sparse matrix
  */
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__matrix_sparse_nuclear_norm(
-    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION []);
+    INTEGER, INTEGER, INTEGER, INTEGER, DOUBLE PRECISION);
 CREATE AGGREGATE MADLIB_SCHEMA.__matrix_sparse_nuclear_norm(
     /*+ numRows */ INTEGER,
     /*+ numCols */ INTEGER,
