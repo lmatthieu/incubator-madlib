@@ -40,7 +40,7 @@ m4_changequote(`<!', `!>')
 
 def path(schema_madlib, source_table, output_table, partition_expr,
          order_expr, pattern_expr, symbol_expr, agg_func,
-         persist_rows=None, **kwargs):
+         persist_rows, overlapping_patterns, **kwargs):
     """
         Perform regular pattern matching over a sequence of rows.
 
@@ -56,15 +56,15 @@ def path(schema_madlib, source_table, output_table, partition_expr,
 
     """
     with MinWarning("error"):
+        # check for both false and None
         if not partition_expr:
             partition_expr = "1 = 1"
-            as_partition_expr = "1 = 1 as all"
-        else:
-            as_partition_expr = partition_expr
-        if persist_rows is None:
+        if not persist_rows:
             # persist_rows = None implies no preference
             # persist_rows = False implies do not store the matched rows
             persist_rows = not bool(agg_func)
+        if not overlapping_patterns:
+            overlapping_patterns = False
 
         _validate(source_table, output_table, partition_expr, order_expr,
                   pattern_expr, symbol_expr, agg_func, persist_rows)
@@ -90,6 +90,7 @@ def path(schema_madlib, source_table, output_table, partition_expr,
         else:
             matched_rows = unique_string('matched_rows')
             table_or_view = 'VIEW'
+
 
         # build a new input temp table that contains a sequence and partition columns
         split_p_cols = [i.strip() for i in partition_expr.split(',')]
@@ -120,99 +121,10 @@ def path(schema_madlib, source_table, output_table, partition_expr,
         #   produce the match are identified by correlating the matched string
         #   indices with another array containing row ids.
 
-        # matched_partitions: For each partition, concatenate all symbols
-        #       into a single string (sym_str). Keep corresponding ids in an
-        #       array (match_to_row_id) in the same order as the symbols.
-        #       This is performed only for partitions that contain a match.
         match_id_name = "__madlib_path_match_id__" if "match_id" in all_input_cols else "match_id"
         symbol_name = "__madlib_path_symbol__" if "symbol" in all_input_cols else "symbol"
-        plpy.execute("""
-            CREATE TEMP TABLE {matched_partitions} AS
-                SELECT
-                    {p_col_name_str},
-                    array_to_string(array_agg({short_sym_name_str} ORDER BY {order_expr}), '') as sym_str,
-                    array_agg({id_col_name} ORDER BY {order_expr}) as {match_to_row_id}
-                FROM {input_with_id}
-                WHERE {short_sym_name_str} is NOT NULL
-                GROUP BY {p_col_name_str}
-                HAVING array_to_string(array_agg({short_sym_name_str} ORDER BY {order_expr}), '')
-                                ~* '{new_pattern_expr}'
-            """.format(**locals()))
 
-        # length_of_matches: For each partition in matched_partitions:
-        #       - find all matches and compute the lengths of each match.
-        #       - output these lengths in an array (matches), along with
-        #         an array of corresponding rank of each match (match_indices).
-        length_of_matches = unique_string("match_length_view")
         plpy.execute("""
-            CREATE VIEW {length_of_matches} AS
-            SELECT
-                {p_col_name_str},
-                {match_to_row_id},
-                array_agg(length(matches) ORDER BY match_index) AS matches,
-                array_agg(match_index ORDER BY match_index) AS match_indices
-            FROM (
-                SELECT
-                    {p_col_name_str},
-                    {match_to_row_id},
-                    generate_series(1, num_matches) AS match_index,
-                    (regexp_matches(
-                           sym_str, '(?i)({new_pattern_expr})', 'g'))[1] AS matches
-                FROM (
-                    SELECT
-                        {p_col_name_str},
-                        {match_to_row_id},
-                        sym_str,
-                        count(matches) AS num_matches
-                    FROM (
-                        SELECT
-                            {p_col_name_str},
-                            {match_to_row_id},
-                            sym_str,
-                            (regexp_matches(
-                                   sym_str, '(?i)({new_pattern_expr})', 'g'))[1] AS matches
-                        FROM
-                           {matched_partitions}
-                        ) t1
-                    GROUP BY {p_col_name_str}, {match_to_row_id}, sym_str
-                    ) t2
-                ) subq2
-            GROUP BY {p_col_name_str}, {match_to_row_id}
-            """.format(**locals()))
-
-        # length_of_between_matches: For each partition in matched_partitions:
-        #       - find all matches and compute the lengths of text between the matches.
-        #       - output these lengths in an array (match_splits)
-        length_of_between_matches = unique_string('match_split_view')
-        plpy.execute("""
-                CREATE VIEW {length_of_between_matches} AS
-                SELECT
-                    {p_col_name_str},
-                    array_agg(length(match_splits) ORDER BY match_index) AS match_splits
-                FROM (
-                    SELECT
-                        {p_col_name_str},
-                        generate_series(1, ARRAY_UPPER(match_splits, 1)) AS match_index,
-                        unnest(match_splits) AS match_splits
-                    FROM (
-                        SELECT
-                            {p_col_name_str},
-                            regexp_split_to_array(sym_str, '(?i){new_pattern_expr}') AS match_splits
-                        FROM
-                            {matched_partitions}
-                        ) ssubq1
-                    ) subq1
-                GROUP BY {p_col_name_str}
-                """.format(**locals()))
-        #   build_multiple_matched_rows:
-        #       q1: Lengths of the strings between the matches (length_of_between_matches)
-        #       q2: Lengths of matches (length_of_matches)
-        #       q3: Merge q1 and q2 and unnest the arrays (ensuring same length).
-        #           Since q2 represents the following match to each split in q1,
-        #           right shifting q2 (prev_matches) gives the preceeding match to each split.
-        #       q4: Compute the cumulative sum of the arrays.
-
-        build_multiple_matched_rows = """
             CREATE {table_or_view} {matched_rows} AS
             SELECT {all_input_cols_str},
                    {long_sym_name_str} AS {symbol_name},
@@ -220,62 +132,50 @@ def path(schema_madlib, source_table, output_table, partition_expr,
             FROM
                 {input_with_id} as source,
                 (
-                    -- get the actual row ids using the start/end values
                     SELECT
-                        unnest({match_to_row_id}[s:e]) AS {match_to_row_id},
-                        match_index AS {match_id}
+                        unnest((matched).id) as {match_id},
+                        unnest((matched).row_id) as {match_to_row_id}
                     FROM
                     (
-                     -- unnest to get tuples where each tuple gives the start/end of a match
-                     SELECT
-                        {match_to_row_id},
-                        unnest(match_start) AS s,
-                        unnest(match_end) AS e,
-                        unnest(match_indices) as match_index
-                     FROM (
-                        -- use cumulative sum to get the start and end of each match
-                        -- (counting from start of symbol string)
                         SELECT
-                            {p_col_name_str},
-                            {match_to_row_id},
-                            {m}.array_cum_sum({m}.array_add(match_splits, prev_matches)) AS match_start,
-                            {m}.array_cum_sum({m}.array_add(match_splits, matches)) AS match_end,
-                            match_indices
-                        FROM (
-                            -- right shift matches to get array of preceeding matches
-                            SELECT
-                               {p_col_name_str},
-                               {match_to_row_id},
-                               matches,
-                               match_indices,
-                               match_splits[1:array_upper(matches, 1)] AS match_splits,
-                               array_prepend(1, matches[1:array_upper(matches, 1) - 1]) AS prev_matches
-                            FROM
-                                {length_of_between_matches} AS q1
-                                JOIN
-                                {length_of_matches} as q2
-                                USING ({p_col_name_str})
-                            ) q3
-                        ) q4
-                    ) q5
-                ) matched_rows
+                            {m}.path_pattern_match(
+                                array_to_string(array_agg({short_sym_name_str} ORDER BY {order_expr}), '')::text,
+                                '{new_pattern_expr}'::text,
+                                array_agg({id_col_name} ORDER BY {order_expr})::float8[],
+                                {overlapping_patterns}::boolean
+                            ) as matched
+                        FROM {input_with_id}
+                        WHERE {short_sym_name_str} is NOT NULL
+                        GROUP BY {p_col_name_str}
+                    ) q
+                ) as matched_rows
             WHERE source.{id_col_name} = matched_rows.{match_to_row_id}
-         """.format(m=schema_madlib, **locals())
-        plpy.execute(build_multiple_matched_rows)
+            """.format(m=schema_madlib, **locals()))
+
         quoted_split_p_cols = [quote_ident(i) for i in split_p_cols]
         p_col_orig_name_str = ','.join(
-            [i + " AS " + j for i, j in zip(p_col_names, quoted_split_p_cols)])
-
+            [i + " AS " + j for i, j in zip(split_p_cols, quoted_split_p_cols)])
         if agg_func:
-            plpy.execute("""
-                CREATE TABLE {output_table} AS
-                   SELECT
-                        {as_partition_expr},
-                        {match_id_name},
-                        {agg_func}
-                   FROM {matched_rows}
-                   GROUP BY {as_partition_expr}, {match_id_name}
-                """.format(**locals()))
+            if partition_expr == '1 = 1':
+                # no partition
+                plpy.execute("""
+                    CREATE TABLE {output_table} AS
+                       SELECT
+                            {match_id_name},
+                            {agg_func}
+                       FROM {matched_rows}
+                       GROUP BY {match_id_name}
+                    """.format(**locals()))
+            else:
+                plpy.execute("""
+                    CREATE TABLE {output_table} AS
+                       SELECT
+                            {p_col_orig_name_str},
+                            {match_id_name},
+                            {agg_func}
+                       FROM {matched_rows}
+                       GROUP BY {partition_expr}, {match_id_name}
+                    """.format(**locals()))
             result = "Aggregation result available in table " + output_table
         else:
             result = "No aggregation table created"
@@ -386,7 +286,7 @@ def _parse_symbol_str(symbol_expr, pattern_expr):
     # replace each occurence of the original symbol with the new
     # perform this operation in descending order of length to avoid substituting
     # subset of any symbol
-    old_symbols_desc = list(reversed(sorted(old_to_new.keys(), key=len)))
+    old_symbols_desc = list(sorted(old_to_new.keys(), key=len, reverse=True))
     replace_pattern = re.compile('|'.join(old_symbols_desc), re.IGNORECASE)
     new_pattern_expr = replace_pattern.sub(
         lambda m: old_to_new[re.escape(string.lower(m.group(0)))],
@@ -399,7 +299,7 @@ def _parse_symbol_str(symbol_expr, pattern_expr):
     case_stmt = "WHEN {d} THEN '{s}'::text"
     for k in orig_symbols_ordered:
         orig_sym_case_stmt.append(case_stmt.format(s=k, d=orig_sym_definitions[k]))
-        new_sym_case_stmt.append(case_stmt.format(s=old_to_new[k.lower()],
+        new_sym_case_stmt.append(case_stmt.format(s=old_to_new[re.escape(k.lower())],
                                                   d=orig_sym_definitions[k]))
     return (new_pattern_expr, '\n'.join(orig_sym_case_stmt), '\n'.join(new_sym_case_stmt))
 # ----------------------------------------------------------------------
@@ -408,20 +308,28 @@ def _parse_symbol_str(symbol_expr, pattern_expr):
 def path_help_message(schema_madlib, message, **kwargs):
     """ Help message for path function
     """
-    help_string = """
-------------------------------------------------------------
-                        SUMMARY
-------------------------------------------------------------
+    summary_string = """
+---------------------------------------------------------------------------
+                                SUMMARY
+---------------------------------------------------------------------------
 Functionality: Path
 
-The goal of the MADlib path function is to perform regular pattern
-matching over a sequence of rows, and to extract useful information about the
-matches.  The useful information could be a simple count of matches or
-something more involved like aggregation.
+The goal of the MADlib path function is to perform regular pattern matching
+over a sequence of rows, and to extract useful information about the matches.
+The useful information could be a simple count of matches or something more
+involved like aggregation.
 
-------------------------------------------------------------
-                        USAGE
-------------------------------------------------------------
+For more details on function usage:
+    SELECT {schema_madlib}.path('usage');
+
+For a small example on using the function:
+    SELECT {schema_madlib}.path('example');
+    """.format(schema_madlib=schema_madlib)
+
+    usage_string = """
+---------------------------------------------------------------------------
+                                USAGE
+---------------------------------------------------------------------------
 SELECT {schema_madlib}.path(
     'source_table',    -- Name of the table
     'output_table',    -- Table name to store the path results
@@ -430,9 +338,85 @@ SELECT {schema_madlib}.path(
     'symbol_def',      -- Definition of various symbols used in the pattern definition
     'pattern_def',     -- Definition of the path pattern to search for
     'agg_func',        -- Aggregate/window functions to be applied on the matched paths
-    persist_rows       -- Boolean indicating whether to output the matched rows
-                       --  in an additional table (named <output_table>_tuples)
+    persist_rows,       -- Boolean indicating whether to output the matched
+                        --  rows in an additional table (named <output_table>_tuples)
+    overlapping_patterns    -- Boolean indicating whether to find every
+                            -- overlapping occurrence of the pattern in the partition
 );
-"""
-    return help_string.format(schema_madlib=schema_madlib)
+    """.format(schema_madlib=schema_madlib)
+
+    example_string = """
+---------------------------------------------------------------------------
+                                EXAMPLE
+---------------------------------------------------------------------------
+- Create an input data set.
+
+DROP TABLE IF EXISTS eventlog, path_output, path_output_tuples;
+CREATE TABLE eventlog (event_timestamp TIMESTAMP,
+            user_id INT,
+            session_id INT,
+            page TEXT,
+            revenue FLOAT);
+INSERT INTO eventlog VALUES
+('04/15/2015 01:03:00', 100821, 100, 'LANDING', 0),
+('04/15/2015 01:04:00', 100821, 100, 'WINE', 0),
+('04/15/2015 01:05:00', 100821, 100, 'CHECKOUT', 39),
+('04/15/2015 02:06:00', 100821, 101, 'WINE', 0),
+('04/15/2015 02:09:00', 100821, 101, 'WINE', 0),
+('04/15/2015 01:15:00', 101121, 102, 'LANDING', 0),
+('04/15/2015 01:16:00', 101121, 102, 'WINE', 0),
+('04/15/2015 01:17:00', 101121, 102, 'CHECKOUT', 15),
+('04/15/2015 01:18:00', 101121, 102, 'LANDING', 0),
+('04/15/2015 01:19:00', 101121, 102, 'HELP', 0),
+('04/15/2015 01:21:00', 101121, 102, 'WINE', 0),
+('04/15/2015 01:22:00', 101121, 102, 'CHECKOUT', 23),
+('04/15/2015 02:15:00', 101331, 103, 'LANDING', 0),
+('04/15/2015 02:16:00', 101331, 103, 'WINE', 0),
+('04/15/2015 02:17:00', 101331, 103, 'HELP', 0),
+('04/15/2015 02:18:00', 101331, 103, 'WINE', 0),
+('04/15/2015 02:19:00', 101331, 103, 'CHECKOUT', 16),
+('04/15/2015 02:22:00', 101443, 104, 'BEER', 0),
+('04/15/2015 02:25:00', 101443, 104, 'CHECKOUT', 12),
+('04/15/2015 02:29:00', 101881, 105, 'LANDING', 0),
+('04/15/2015 02:30:00', 101881, 105, 'BEER', 0),
+('04/15/2015 01:05:00', 102201, 106, 'LANDING', 0),
+('04/15/2015 01:06:00', 102201, 106, 'HELP', 0),
+('04/15/2015 01:09:00', 102201, 106, 'LANDING', 0),
+('04/15/2015 02:15:00', 102201, 107, 'WINE', 0),
+('04/15/2015 02:16:00', 102201, 107, 'BEER', 0),
+('04/15/2015 02:17:00', 102201, 107, 'WINE', 0),
+('04/15/2015 02:18:00', 102871, 108, 'BEER', 0),
+('04/15/2015 02:19:00', 102871, 108, 'WINE', 0),
+('04/15/2015 02:22:00', 102871, 108, 'CHECKOUT', 21),
+('04/15/2015 02:25:00', 102871, 108, 'LANDING', 0),
+('04/15/2015 02:17:00', 103711, 109, 'BEER', 0),
+('04/15/2015 02:18:00', 103711, 109, 'LANDING', 0),
+('04/15/2015 02:19:00', 103711, 109, 'WINE', 0);
+
+- Calculate the revenue by checkout:
+
+SELECT {schema_madlib}.path(
+     'eventlog',                -- Name of input table
+     'path_output',             -- Table name to store path results
+     'session_id',              -- Partition input table by session
+     'event_timestamp ASC',     -- Order partitions in input table by time
+     'buy:=page=''CHECKOUT''',  -- Define a symbol for checkout events
+     '(buy)',                   -- Pattern search: purchase
+     'sum(revenue) as checkout_rev',    -- Aggregate:  sum revenue by checkout
+     TRUE                       -- Persist matches
+     );
+
+SELECT * FROM path_output ORDER BY session_id, match_id;
+    """.format(schema_madlib=schema_madlib)
+
+    if not message:
+        return summary_string
+    elif message.lower() in ('usage', 'help', '?'):
+        return usage_string
+    elif message.lower() in ('example', 'examples'):
+        return example_string
+    else:
+        return """
+No such option. Use "SELECT {schema_madlib}.path()" for help.
+        """.format(schema_madlib=schema_madlib)
 # ------------------------------------------------------------
